@@ -1,0 +1,228 @@
+# Manifest for all resources
+## Deployments:
+#   1. CouchDB Database with env-vars for DB_USER and mounted secrets -> Password
+#   2. fastapi-friends with mounted env-vars for DB_USER and couch_host, couch_port and secret DB_PASSWORD
+#   3. fastapi-company with mounted env-vars for DB_USER and couch_host, couch_port and secret DB_PASSWORD
+## Secrets
+#   1. DB_PASSWORD
+## Labels: 
+#  1. fastapi-friends and fastapi-company will have the label appgrp=fastapi, so we can filter based on this label
+## Service Account
+#  1. Service account created just for deployment purposes that can only do deployments into a particular namespace
+## Namespace
+#  1. Fastapi namespace
+
+# ---
+# apiVersion: v1
+# kind: Namespace
+# metadata: 
+#   name: fastapi-abhaybhargav
+# ---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: fastapi-deployer
+--
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata: 
+  name: fastapi-deployment-rolebinding
+  namespace: fastapi-abhaybhargav
+roleRef: 
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: fastapi-deploy-role
+subjects: 
+  - kind: ServiceAccount
+    name: fastapi-deployer
+    namespace: fastapi-abhaybhargav
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: fastapi-deploy-role
+rules: 
+  - apiGroups: [""]
+  - resources: ["pods", "resources", "services", "secrets"]
+    verbs: ["create", "update", "list", "watch", "get"]
+---
+apiVersion: v1
+kind: Secret
+metadata: 
+  name: couch-db-password
+  namespace: fastapi-abhaybhargav
+type: Opaque
+stringData:
+  DB_PASSWORD: "password"
+---
+# database deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata: 
+  name: couch
+  namespace: fastapi-abhaybhargav
+  labels: 
+    run: couch
+    appgrp: fastapi
+spec:
+  selector: 
+    matchLabels: 
+      appgrp: fastapi
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 1
+  template:
+    metadata:
+      labels:
+        appgrp: fastapi
+    spec:
+      containers:
+        - image: couchdb
+          imagePullPolicy: IfNotPresent
+          name: couch
+          ports:
+            - containerPort: 5984
+          env: 
+            - name: COUCHDB_USER
+              value: "admin"
+            - name: COUCHDB_PASSWORD
+              valueFrom:
+                secretKeyRef: 
+                  name: couch-db-password
+                  key: DB_PASSWORD
+      serviceAccountName: fastapi-deployer
+      automountServiceAccountToken: false
+
+# database service
+apiVersion: v1
+kind: Service
+metadata:
+  name: couch-service
+  namespace: fastapi-abhaybhargav
+spec:
+  ports:
+    - port: 5984
+      protocol: TCP
+  selector:
+    run: couch
+---
+# friends service
+apiVersion: apps/v1
+kind: Deployment
+metadata: 
+  name: friends
+  namespace: fastapi-abhaybhargav
+  labels: 
+    run: friends
+    appgrp: fastapi
+spec:
+  selector: 
+    matchLabels: 
+      appgrp: fastapi
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 1
+  template:
+    metadata:
+      labels:
+        appgrp: fastapi
+    spec:
+      containers:
+        - image: we45/fastapi-friends
+          imagePullPolicy: IfNotPresent
+          name: friends
+          ports:
+            - containerPort: 8001
+          env: 
+            - name: COUCH_SERVER
+              value: "couch"
+            - name: COUCH_PORT
+              value: "5984"
+            - name: DB_USER
+              value: admin
+            - name: COUCHDB_PASSWORD
+              valueFrom:
+                secretKeyRef: 
+                  name: couch-db-password
+                  key: DB_PASSWORD
+      serviceAccountName: fastapi-deployer
+      automountServiceAccountToken: false
+
+# friends service
+apiVersion: v1
+kind: Service
+metadata:
+  name: friends-service
+  namespace: fastapi-abhaybhargav
+spec:
+  ports:
+    - port: 8001
+      protocol: TCP
+  selector:
+    run: friends
+---
+# company service
+apiVersion: apps/v1
+kind: Deployment
+metadata: 
+  name: company
+  namespace: fastapi-abhaybhargav
+  labels: 
+    run: company
+    appgrp: fastapi
+spec:
+  selector: 
+    matchLabels: 
+      appgrp: fastapi
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 1
+  template:
+    metadata:
+      labels:
+        appgrp: fastapi
+    spec:
+      containers:
+        - image: we45/fastapi-company
+          imagePullPolicy: IfNotPresent
+          name: company
+          ports:
+            - containerPort: 8000
+          env: 
+            - name: COUCH_SERVER
+              value: "couch"
+            - name: COUCH_PORT
+              value: "5984"
+            - name: DB_USER
+              value: admin
+            - name: COUCHDB_PASSWORD
+              valueFrom:
+                secretKeyRef: 
+                  name: couch-db-password
+                  key: DB_PASSWORD
+      serviceAccountName: fastapi-deployer
+      automountServiceAccountToken: false
+
+# friends service
+apiVersion: v1
+kind: Service
+metadata:
+  name: company-service
+  namespace: fastapi-abhaybhargav
+spec:
+  ports:
+    - port: 8000
+      protocol: TCP
+  selector:
+    run: company
+---
